@@ -38,7 +38,28 @@ jobs:
       - name: Build application
         run: npm run build
 
-      - name: Build & publish installer
+      # Create exactly one release up front so electron-builder uploads INTO it
+      # instead of racing to create the release per-artifact (which produced two
+      # drafts — one with the .exe/.yml, one with the .blockmap).
+      - name: Ensure a single release exists
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME" --generate-notes
+
+      - name: Build & upload installer
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx electron-builder --win nsis --publish always
+
+      # Flip the draft to a published release so electron-updater (which only
+      # sees published releases) can find latest.yml and offer the update.
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false --latest
