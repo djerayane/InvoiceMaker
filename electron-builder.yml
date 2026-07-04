@@ -1,0 +1,34 @@
+appId: com.invoicemaker.app
+productName: InvoiceMaker
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - '!**/*.map'
+asarUnpack:
+  - '**/node_modules/pdfjs-dist/**'
+
+# Auto-update is served from GitHub Releases. In GitHub Actions the owner/repo are
+# detected automatically; electron-updater reads the generated app-update.yml at runtime.
+publish:
+  provider: github
+
+mac:
+  category: public.app-category.business
+  target:
+    - dmg
+win:
+  # NSIS installer supports auto-update (produces latest.yml + blockmap). It builds
+  # natively on a Windows runner — no Wine needed. For a Wine-free local build on
+  # macOS/Linux use `npx electron-builder --win zip` instead (not auto-updatable).
+  target:
+    - nsis
+nsis:
+  oneClick: true
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+linux:
+  target:
+    - AppImage
+  category: Office

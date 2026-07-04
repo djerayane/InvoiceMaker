@@ -1,0 +1,212 @@
+@import 'tailwindcss';
+
+/* ============================================================================
+   InvoiceMaker — "atelier industriel"
+   Anthracite chrome · warm paper surfaces · vermilion accent.
+   Distinctive type: Bricolage Grotesque display, IBM Plex Sans/Mono for figures.
+   ========================================================================== */
+
+@theme {
+  --color-ink: #23262b;
+  --color-ink-700: #2b2f36;
+  --color-ink-600: #363b43;
+  --color-ink-500: #4a505a;
+  --color-ink-400: #6b7280;
+
+  --color-paper: #f6f3ec;
+  --color-paper-2: #efe9dc;
+  --color-paper-line: #ddd5c4;
+
+  --color-vermilion: #de3a26;
+  --color-vermilion-600: #c22f1e;
+  --color-vermilion-100: #f8ddd6;
+
+  --color-moss: #2f7a58;
+  --color-moss-100: #d8ebe0;
+  --color-amber: #b7791f;
+  --color-amber-100: #f6e7c8;
+
+  --font-display: 'Bricolage Grotesque', system-ui, sans-serif;
+  --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  --radius-xl: 18px;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+  }
+  body {
+    font-family: var(--font-sans);
+    background: var(--color-ink);
+    color: #e9e6df;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0;
+  }
+  ::selection {
+    background: var(--color-vermilion);
+    color: white;
+  }
+  /* Numeric figures use tabular mono so columns of money align. */
+  .tnum {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum';
+  }
+  input,
+  button,
+  textarea {
+    font-family: inherit;
+  }
+  /* App drag region for the frameless mac title bar. */
+  .drag {
+    -webkit-app-region: drag;
+  }
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+}
+
+@layer components {
+  /* --- Buttons ------------------------------------------------------------ */
+  .btn {
+    -webkit-app-region: no-drag;
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5
+      text-sm font-semibold transition-all duration-150 select-none cursor-pointer
+      disabled:cursor-not-allowed disabled:opacity-45;
+  }
+  .btn-primary {
+    background: var(--color-vermilion);
+    color: white;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: var(--color-vermilion-600);
+    transform: translateY(-1px);
+  }
+  .btn-ghost {
+    background: transparent;
+    color: #cbc7bd;
+    border: 1px solid var(--color-ink-500);
+  }
+  .btn-ghost:hover:not(:disabled) {
+    border-color: var(--color-ink-400);
+    color: #efece5;
+  }
+  .btn-paper {
+    background: var(--color-ink);
+    color: var(--color-paper);
+  }
+  .btn-paper:hover:not(:disabled) {
+    background: var(--color-ink-700);
+  }
+
+  /* --- Inputs ------------------------------------------------------------- */
+  .field {
+    -webkit-app-region: no-drag;
+    @apply w-full rounded-lg px-3.5 py-2.5 text-sm transition-colors outline-none;
+    background: white;
+    color: #1c1f24;
+    border: 1px solid var(--color-paper-line);
+  }
+  .field::placeholder {
+    color: #a9a291;
+  }
+  .field:focus {
+    border-color: var(--color-vermilion);
+    box-shadow: 0 0 0 3px var(--color-vermilion-100);
+  }
+  .field-dark {
+    background: rgba(255, 255, 255, 0.04);
+    color: #f0ede6;
+    border: 1px solid var(--color-ink-500);
+  }
+  .field-dark::placeholder {
+    color: #7c8290;
+  }
+  .field-dark:focus {
+    border-color: var(--color-vermilion);
+    box-shadow: 0 0 0 3px rgba(222, 58, 38, 0.22);
+  }
+  .label {
+    @apply mb-1.5 block text-xs font-semibold tracking-wide uppercase;
+    color: #8a9099;
+  }
+
+  /* --- Surfaces ----------------------------------------------------------- */
+  .paper {
+    background: var(--color-paper);
+    color: #1c1f24;
+    border-radius: var(--radius-xl);
+    border: 1px solid var(--color-paper-line);
+  }
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold;
+  }
+}
+
+/* --- Custom scrollbars (dark chrome) -------------------------------------- */
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+::-webkit-scrollbar-thumb {
+  background: #3c414a;
+  border-radius: 8px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #4d535d;
+  background-clip: content-box;
+}
+
+/* --- Motion --------------------------------------------------------------- */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.animate-rise {
+  animation: rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.animate-fade {
+  animation: fade 0.4s ease both;
+}
+
+/* Faint blueprint grid used behind the dark chrome for atelier texture. */
+.blueprint {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.022) 1px, transparent 1px);
+  background-size: 26px 26px;
+}
