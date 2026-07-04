@@ -27,6 +27,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Make the git tag the single source of truth for the version: a tag
+      # `v1.2.3` sets the package version to `1.2.3` before building, so the
+      # installer and the auto-update metadata always match the release tag.
+      - name: Align version with tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: npm version --no-git-tag-version --allow-same-version "${GITHUB_REF_NAME#v}"
+
       - name: Build application
         run: npm run build
 
