@@ -254,7 +254,8 @@ export function Review({ invoices, onChange, onBack, onDone }: Props) {
                       <input
                         className="field !py-2 text-sm"
                         value={line.label}
-                        placeholder="Désignation"
+                        placeholder="Détail (dimensions, couleur, vitrage…)"
+                        title="Sur la facture, le nom du produit Odoo est ajouté avant ce détail"
                         onChange={(e) => updateLine(line.id, { label: e.target.value })}
                       />
                       <div className="mt-1.5 flex items-center gap-2">

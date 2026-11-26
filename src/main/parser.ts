@@ -123,99 +123,159 @@ function extractCustomer(lines: string[], warnings: string[]): DevisCustomer {
   return customer
 }
 
-function extractLineItems(lines: string[], warnings: string[]): DevisLine[] {
-  const items: DevisLine[] = []
+export interface ParsedRow {
+  label: string
+  qty: number
+  unitPriceHT: number
+  /** VAT rate when printed on the row itself. */
+  vatRate?: number
+  /** True when qty × unit price (minus any discount) matches the printed line total. */
+  consistent: boolean
+}
 
-  // Strategy A — inline rows (facture style):
-  //   "DESIGNATION ... 1,00 877,19 TVA 20% 877,19 €"
-  const inlineRe = new RegExp(
-    String.raw`^(.+?)\s+(\d+(?:,\d{1,2})?)\s+(${MONEY})\s+TVA\s+(\d+)\s*%\s+(${MONEY})\s*€?$`,
-    'i'
-  )
-  for (const line of lines) {
-    const m = line.match(inlineRe)
-    if (m) {
-      const label = m[1].trim()
-      items.push({
-        rawDescription: label,
-        label,
-        qty: parseFrenchNumber(m[2]),
-        unitPriceHT: parseFrenchNumber(m[3]),
-        vatRate: Number.parseInt(m[4], 10),
-        matchConfidence: 'none'
-      })
-    }
+const CENTS_TOKEN = /^-?\d+(?:\.\d{3})*,\d{2}$/
+const QTY_TOKEN = /^\d+(?:,\d{1,3})?$/
+const PERCENT_TOKEN = /^\d{1,2}(?:,\d{1,2})?%$/
+
+/**
+ * All the ways the tokens ending just before `end` can be read as one French
+ * amount ("1 099,20" is two tokens, "099,20" alone is also a valid reading).
+ */
+function moneyEndingAt(tokens: string[], end: number): Array<{ start: number; value: number }> {
+  const out: Array<{ start: number; value: number }> = []
+  const last = tokens[end - 1]
+  if (end < 1 || !CENTS_TOKEN.test(last)) return out
+  out.push({ start: end - 1, value: parseFrenchNumber(last) })
+  // Extend leftwards with thousands groups: "1" "099,20", "12" "500" "000,00".
+  let groupOk = /^\d{3},\d{2}$/.test(last)
+  for (let s = end - 2; s >= 0 && groupOk; s--) {
+    const t = tokens[s]
+    if (!/^-?\d{1,3}$/.test(t)) break
+    out.push({ start: s, value: parseFrenchNumber(tokens.slice(s, end).join(' ')) })
+    groupOk = /^\d{3}$/.test(t)
   }
-  if (items.length) return items
+  return out
+}
 
-  // Strategy B2 — designation followed by trailing amounts on one row (wide table):
-  //   "Coulissant 2 vantaux 2 rails 1 1 099,20 1 099,20 20"
-  const trailingRe = new RegExp(
-    String.raw`^(.+?[A-Za-zÀ-ÿ].*?)\s+(\d+(?:,\d{1,2})?)\s+(${MONEY})\s+(${MONEY})(?:\s+(\d{1,2}))?\s*€?$`
-  )
-  for (const line of lines) {
-    if (/total|montant|hors taxes/i.test(line)) continue
-    const m = line.match(trailingRe)
-    if (m) {
-      const label = m[1].trim()
-      if (label.length < 3) continue
-      items.push({
-        rawDescription: label,
-        label,
-        qty: parseFrenchNumber(m[2]),
-        unitPriceHT: parseFrenchNumber(m[3]),
-        vatRate: m[5] ? Number.parseInt(m[5], 10) : 20,
-        matchConfidence: 'none'
-      })
-    }
+/**
+ * Read a table row ending with amounts. Handles:
+ *   "Désignation  qté  P.U.  total  [TVA]"            (wide table)
+ *   "Désignation  qté  P.U.  TVA 20 %  total  €"     (facture)
+ *   "Désignation  qté  P.U.  remise %  total  [TVA]" (with a discount column)
+ *   "qté  P.U.  total"                                (amounts alone, label above)
+ * Every possible split is tried and the one where qty × P.U. equals the printed
+ * total wins, so a designation ending in a number ("AILE DE 27") or a price with
+ * a thousands space ("1 099,20") is no longer mistaken for the quantity.
+ */
+export function parseAmountRow(line: string): ParsedRow | null {
+  const tokens = line
+    .replace(/(\d)\s*%/g, '$1%')
+    .replace(/€/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+  if (tokens.length < 3) return null
+
+  const candidates: ParsedRow[] = []
+  // Optional trailing VAT column ("20", "20%", "5,5%").
+  const vatOptions: Array<{ end: number; vat?: number }> = [{ end: tokens.length }]
+  const lastTok = tokens[tokens.length - 1]
+  if (/^\d{1,2}(?:,\d)?%?$/.test(lastTok) && !CENTS_TOKEN.test(lastTok)) {
+    vatOptions.unshift({ end: tokens.length - 1, vat: parseFrenchNumber(lastTok.replace('%', '')) })
   }
-  if (items.length) return items
 
-  // Strategy B — amount rows isolated from the designation (devis style):
-  //   designation lines... then "1 1 099,20 1 099,20" and a standalone "20".
-  const amountRowRe = new RegExp(
-    String.raw`^(\d+(?:,\d{1,2})?)\s+(${MONEY})\s+(${MONEY})$`
-  )
-  for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(amountRowRe)
-    if (!m) continue
-    const qty = parseFrenchNumber(m[1])
-    const unit = parseFrenchNumber(m[2])
-    // Use the nearest preceding non-numeric, reasonably short line as the label.
-    let label = ''
-    for (let j = i - 1; j >= 0 && j > i - 8; j--) {
-      const cand = lines[j].trim()
-      if (!cand) continue
-      if (/^[.\-·•]/.test(cand)) continue // sub-spec bullet lines
-      if (/€|H\.?T\.?|TVA|Qté|Total|Visuel|Désignation/i.test(cand)) continue
-      if (cand.length >= 3 && cand.length <= 80) {
-        label = cand
-        break
+  for (const v of vatOptions) {
+    for (const total of moneyEndingAt(tokens, v.end)) {
+      let e = total.start
+      let vat = v.vat
+      // Facture style: "... TVA 20% <total>".
+      if (e >= 2 && /^tva$/i.test(tokens[e - 2]) && PERCENT_TOKEN.test(tokens[e - 1])) {
+        vat = parseFrenchNumber(tokens[e - 1].replace('%', ''))
+        e -= 2
+      }
+      // Optional discount column ("10%").
+      let discount = 0
+      if (e >= 1 && PERCENT_TOKEN.test(tokens[e - 1])) {
+        discount = parseFrenchNumber(tokens[e - 1].replace('%', ''))
+        e -= 1
+      }
+      for (const unit of moneyEndingAt(tokens, e)) {
+        const qi = unit.start - 1
+        if (qi < 0 || !QTY_TOKEN.test(tokens[qi])) continue
+        const qty = parseFrenchNumber(tokens[qi])
+        const label = tokens.slice(0, qi).join(' ').trim()
+        if (label && (!/[A-Za-zÀ-ÿ]/.test(label) || label.length < 3)) continue
+        const expected = qty * unit.value * (1 - discount / 100)
+        const consistent =
+          Math.abs(expected - total.value) <= Math.max(0.05, Math.abs(total.value) * 0.002)
+        candidates.push({ label, qty, unitPriceHT: unit.value, vatRate: vat, consistent })
       }
     }
-    // A standalone VAT rate often sits just after the amount row.
-    let vat = 20
-    for (let j = i; j < Math.min(i + 3, lines.length); j++) {
-      const vm = lines[j].match(/^(\d{1,2})$/)
-      if (vm) {
-        vat = Number.parseInt(vm[1], 10)
-        break
+  }
+  if (!candidates.length) return null
+  // Prefer a reading whose total checks out; otherwise keep the shortest-label
+  // reading (the historical behaviour) and let the user verify it.
+  const consistent = candidates.filter((c) => c.consistent)
+  const pool = consistent.length ? consistent : candidates
+  return pool.reduce((best, c) => (c.label.length < best.label.length ? c : best))
+}
+
+function extractLineItems(lines: string[], warnings: string[]): DevisLine[] {
+  const items: DevisLine[] = []
+  let unsure = 0
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    if (/\btotal\b|montant|hors taxes|net [àa] payer/i.test(line)) continue
+    const row = parseAmountRow(line)
+    if (!row) continue
+
+    let label = row.label
+    if (!label) {
+      // Amounts alone on their row (devis style): the designation sits above.
+      for (let j = i - 1; j >= 0 && j > i - 8; j--) {
+        const cand = lines[j].trim()
+        if (!cand) continue
+        if (/^[.\-·•]/.test(cand)) continue // sub-spec bullet lines
+        if (/€|H\.?T\.?|TVA|Qté|Total|Visuel|Désignation/i.test(cand)) continue
+        if (parseAmountRow(cand)) break // previous item's amounts: no label of our own
+        if (cand.length >= 3 && cand.length <= 80) {
+          label = cand
+          break
+        }
+      }
+    }
+    let vat = row.vatRate
+    if (vat === undefined) {
+      // A standalone VAT rate often sits just after the amount row.
+      for (let j = i + 1; j < Math.min(i + 3, lines.length); j++) {
+        const vm = lines[j].match(/^(\d{1,2}(?:,\d)?)\s*%?$/)
+        if (vm) {
+          vat = parseFrenchNumber(vm[1])
+          break
+        }
       }
     }
     if (!label) {
       label = 'Article'
       warnings.push('Une ligne a été détectée sans description claire — vérifiez le libellé.')
     }
+    if (!row.consistent) unsure++
     items.push({
       rawDescription: label,
       label,
-      qty,
-      unitPriceHT: unit,
-      vatRate: vat,
+      qty: row.qty,
+      unitPriceHT: row.unitPriceHT,
+      vatRate: vat ?? 20,
       matchConfidence: 'none'
     })
   }
 
+  if (unsure) {
+    warnings.push(
+      `${unsure} ligne${unsure > 1 ? 's' : ''} dont quantité × prix ne correspond pas au total ` +
+        'imprimé — vérifiez quantité et prix.'
+    )
+  }
   if (!items.length) {
     warnings.push(
       "Aucune ligne d'article n'a pu être détectée automatiquement — ajoutez-les dans l'aperçu."

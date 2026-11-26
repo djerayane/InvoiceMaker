@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { parseLines, parseFrenchNumber, parseDevis } from '../src/main/parser'
+import { parseLines, parseFrenchNumber, parseDevis, parseAmountRow } from '../src/main/parser'
 
 describe('parseFrenchNumber', () => {
   it('parses French-formatted amounts', () => {
@@ -122,5 +122,61 @@ describe.skipIf(!existsSync(samplePdf))('parseDevis — local sample PDF', () =>
     const d = await parseDevis(samplePdf)
     expect(d.customer.name.length).toBeGreaterThan(0)
     expect(d.totalTTC).toBeGreaterThan(0)
+  })
+})
+
+describe('parseAmountRow — quantity / price disambiguation', () => {
+  it('does not take a number ending the designation for the quantity', () => {
+    const r = parseAmountRow('DT RENO AILE DE 27 1 997,00 997,00 20')!
+    expect(r.label).toBe('DT RENO AILE DE 27')
+    expect(r.qty).toBe(1)
+    expect(r.unitPriceHT).toBeCloseTo(997)
+    expect(r.vatRate).toBe(20)
+    expect(r.consistent).toBe(true)
+  })
+
+  it('reads thousands-separated prices with quantities above 1', () => {
+    const r = parseAmountRow('Fenêtre 2 vantaux 3 1 250,00 3 750,00')!
+    expect(r.label).toBe('Fenêtre 2 vantaux')
+    expect(r.qty).toBe(3)
+    expect(r.unitPriceHT).toBeCloseTo(1250)
+  })
+
+  it('handles a discount column', () => {
+    const r = parseAmountRow('Volet roulant 2 500,00 10 % 900,00 20')!
+    expect(r.qty).toBe(2)
+    expect(r.unitPriceHT).toBeCloseTo(500)
+    expect(r.consistent).toBe(true)
+  })
+
+  it('reads amount-only rows', () => {
+    const r = parseAmountRow('4 1 099,20 4 396,80')!
+    expect(r.label).toBe('')
+    expect(r.qty).toBe(4)
+    expect(r.unitPriceHT).toBeCloseTo(1099.2)
+  })
+})
+
+describe('parseLines — large devis with many lines', () => {
+  const lines = ['DEVIS N° 00002', 'Mme. EXEMPLE Claire', '75001 Paris', 'Désignation Qté P.U.H.T. Total H.T. TVA']
+  let sum = 0
+  for (let n = 1; n <= 40; n++) {
+    const qty = (n % 3) + 1
+    const unit = 1000 + n * 7.5
+    const fmt = (v: number): string =>
+      v.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
+    lines.push(`Fenêtre aile de 27 n°${n}`, '. Couleur : Blanc', `${qty} ${fmt(unit)} ${fmt(qty * unit)}`, '20')
+    sum += qty * unit
+  }
+  lines.push(`Total HT : ${sum.toFixed(2).replace('.', ',')} €`)
+  const d = parseLines(lines, 'big.pdf', '/tmp/big.pdf')
+
+  it('extracts every line with the right quantity and price', () => {
+    expect(d.lines).toHaveLength(40)
+    expect(d.lines[0].label).toBe('Fenêtre aile de 27 n°1')
+    expect(d.lines[0].qty).toBe(2)
+    expect(d.lines[0].unitPriceHT).toBeCloseTo(1007.5)
+    expect(d.lines.reduce((s, l) => s + l.qty * l.unitPriceHT, 0)).toBeCloseTo(sum)
+    expect(d.warnings.filter((w) => /vérifiez/.test(w))).toHaveLength(0)
   })
 })
