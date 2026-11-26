@@ -11,6 +11,7 @@ import type {
   PushResult
 } from '@shared/types'
 import { getSettings, getApiKey } from './store'
+import { composeLineName, type ProductDescriptionSource } from './invoiceLine'
 
 type Creds = OdooSettings & { apiKey: string }
 
@@ -219,12 +220,29 @@ export async function listSaleTaxes(): Promise<OdooTax[]> {
 export async function createDraftInvoice(request: InvoiceDraftRequest): Promise<PushResult> {
   try {
     const client = await connectedClient()
+    // Read each product's own description so the line keeps it (see invoiceLine.ts).
+    const productIds = [...new Set(request.lines.map((l) => l.productId))]
+    const products = new Map<number, ProductDescriptionSource>()
+    if (productIds.length) {
+      const rows = (await client.read('product.product', productIds, [
+        'name',
+        'display_name',
+        'description_sale'
+      ])) as Record<string, unknown>[]
+      for (const r of rows) {
+        products.set(r.id as number, {
+          name: typeof r.name === 'string' ? r.name : '',
+          displayName: typeof r.display_name === 'string' ? r.display_name : undefined,
+          descriptionSale: typeof r.description_sale === 'string' ? r.description_sale : undefined
+        })
+      }
+    }
     const invoiceLines = request.lines.map((l) => [
       0,
       0,
       {
         product_id: l.productId,
-        name: l.name,
+        name: products.has(l.productId) ? composeLineName(products.get(l.productId)!, l.name) : l.name,
         quantity: l.quantity,
         price_unit: l.priceUnit,
         tax_ids: [[6, 0, l.taxIds]]
